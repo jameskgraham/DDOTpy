@@ -1,0 +1,79 @@
+#-------------------------------------------------------------------------------
+# Name:        RefreshWazeData.py
+# Purpose:     Take Waze data feed to refresh local SDE feature classes (Jams, Alerts)
+#               and convert into projected feature classes.
+# Author:      jgraham
+#
+# Created:     26/01/2015
+# Copyright:   (c) jgraham 2015
+# Licence:     MIT
+#-------------------------------------------------------------------------------
+
+import urllib
+import subprocess
+import os, sys
+import calendar
+from datetime import datetime, timedelta
+from time import mktime, gmtime, localtime
+import json
+import glob
+import shutil
+
+scriptloc = sys.path[0]
+
+def hms_string(sec_elapsed):
+    h = int(sec_elapsed / (60 * 60))
+    m = int((sec_elapsed % (60 * 60)) / 60)
+    s = sec_elapsed % 60.
+    return "{}:{:>02}:{:>05.2f}".format(h, m, s)
+
+def convert_to_localdatetime(epochtime):
+    if not epochtime:
+        return None
+    else:
+        epochtime_conv = gmtime(int(epochtime)/1000)
+        return utc_to_local(datetime.fromtimestamp(mktime(epochtime_conv)))
+
+def utc_to_local(utc_dt):
+    # get integer timestamp to avoid precision lost... from http://stackoverflow.com/questions/4563272/how-to-convert-a-python-utc-datetime-to-a-local-datetime-using-only-python-stand/13287083#13287083
+    timestamp = calendar.timegm(utc_dt.timetuple())
+    local_dt = datetime.fromtimestamp(timestamp)
+    assert utc_dt.resolution >= timedelta(microseconds=1)
+    return local_dt.replace(microsecond=utc_dt.microsecond)
+
+def getWazeData(refreshtime):
+
+    #get rid of existing files...
+    oldwazejsonspath = os.path.join(scriptloc, "wazejson")
+    if not os.path.exists(oldwazejsonspath):
+        os.makedirs(oldwazejsonspath)
+    os.chdir(oldwazejsonspath)
+    oldwazejsons = glob.glob('*.json')
+
+    for eachfile in oldwazejsons:
+        os.remove(os.path.join(oldwazejsonspath, eachfile))
+
+    #download fresh data from Waze...
+    #you'll need to download and install the open source zip utility '7 Zip'.  Go to http://sourceforge.net/projects/sevenzip/
+    url ="http://<<insert.WAZE.URL.TO.json.7z>>"
+    wazefilepath = os.path.join(scriptloc, "Waze.7z")
+    wazefeedpath = os.path.join(scriptloc, 'wazejson')
+    urllib.urlretrieve (url, wazefilepath)
+
+    subprocess.call([r'C:\Program Files\7-Zip\7z.exe', 'x', '-y', '-p<<YOUR-WAZE-PASSWORD-GOES-HERE>>', "-o" + wazefeedpath, wazefilepath])
+
+    #copy to local json dump folder...
+    os.chdir(wazefeedpath)
+    wazejsons = glob.glob('*.json')
+    newfilelocation = os.path.join("\\\<<PATH\TO\WAZEDIR>>", refreshtime + ".json")
+    shutil.copy2(wazejsons[0], newfilelocation)
+
+if __name__ == '__main__':
+    start_time = datetime.now()
+
+    refreshtime = ('%02d_%02d_%02d-%02d_%02d'%(start_time.month,start_time.day,start_time.year,start_time.hour,start_time.minute))
+    getWazeData(refreshtime)
+
+    end_time = datetime.now()
+    seconds_elapsed = (end_time - start_time).total_seconds()
+    print "It took {} to execute this".format(hms_string(seconds_elapsed))
